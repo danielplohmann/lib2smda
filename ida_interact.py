@@ -10,14 +10,13 @@ import ida_pro
 from smda.Disassembler import Disassembler
 from smda.ida.IdaInterface import IdaInterface
 
-import config
-
 
 if idaapi.IDA_SDK_VERSION < 740:
     raise Exception("This script has been only tested for IDA_SDK_VERSION 7.4 and above.")
 
-smda_output_dir = config.LIB2SMDA_TMP_ROOT + os.sep + "smda_tmp"
-smda_report_output_path = smda_output_dir + os.sep + "ida_output_converted.json"
+this_path = str(os.path.abspath(os.sep.join([str(os.path.abspath(__file__)), ".."])))
+smda_output_dir = os.sep.join([this_path, "converter_tmp", "ida_output"])
+smda_report_output_path = os.sep.join([smda_output_dir, "ida_output_converted.json"])
 try:
     input_filepath = idc.get_input_file_path()
     ida_auto.auto_wait()
