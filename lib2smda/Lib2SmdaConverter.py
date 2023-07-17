@@ -20,7 +20,7 @@ class Lib2SmdaConverter(object):
         print(f"Ensureing empty tmp root: {self.config.lib2smda_tmp_root}")
         self.ensureEmptyTmpDir(self.config.lib2smda_tmp_root)
     
-    def extractObjectFiles(self, filepath):
+    def extractObjectFiles(self, filepath, extension=".obj"):
         extracted_obj_files = {}
         # paths
         output_basedir = os.sep.join([self.config.lib2smda_tmp_root, "obj_files"])
@@ -29,21 +29,30 @@ class Lib2SmdaConverter(object):
         # execute like: 7z e libzlib.lib -o/tmp/ar_output
         console_output = subprocess.Popen(["7z", "e", filepath, "-y", "-o%s" % tmp_filepath], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         out_stdio, out_stderr = console_output.communicate()
-        time.sleep(0.1)
+        time.sleep(0.05)
         has_obj_files = False
         for filename in sorted(os.listdir(tmp_filepath)):
-            if "\\" in filename and filename.endswith(".obj"):
+            # TODO not sure if we need to check for the backslash? that's from shiftmedia and windows lib files 
+            if "\\" in filename and filename.endswith(extension):
                 component = filename.split("\\")[-1]
                 extracted_obj_filepath = output_basedir + os.sep + filename.split("\\")[-1]
                 shutil.move(tmp_filepath + os.sep + filename, extracted_obj_filepath)
                 extracted_obj_files[component] = extracted_obj_filepath
+                has_obj_files = True
+                time.sleep(0.1)
+            elif filename.endswith(extension):
+                component = filename
+                extracted_obj_filepath = output_basedir + os.sep + filename
+                shutil.move(tmp_filepath + os.sep + filename, extracted_obj_filepath)
+                extracted_obj_files[component] = extracted_obj_filepath
+                has_obj_files = True
                 time.sleep(0.1)
             else:
                 pass
                 # print(f"Skipping Non-Windows filename for OBJ file: {filename}")
         if has_obj_files and os.path.exists(tmp_filepath + os.sep + "1.txt"):
             shutil.move(tmp_filepath + os.sep + "1.txt", output_basedir + os.sep + "_metadata.txt")
-            time.sleep(0.1)
+            time.sleep(0.05)
         return extracted_obj_files
     
     def mergeSmdaReports(self, smda_reports):
@@ -98,7 +107,7 @@ class Lib2SmdaConverter(object):
                 os.remove(filepath + extension)
             except:
                 pass
-            time.sleep(0.2)
+            time.sleep(0.1)
             smda_report.is_library = True
             smda_report.filename = os.path.basename(filepath)
             with open(output_filepath, "w") as fout:
@@ -147,7 +156,7 @@ class Lib2SmdaConverter(object):
         try:
             os.makedirs(filepath)
             # give FS a moment to realize what's happening
-            time.sleep(0.1)
+            time.sleep(0.05)
         except:
             pass
 
@@ -159,7 +168,7 @@ class Lib2SmdaConverter(object):
             shutil.rmtree(tmp_filepath)
         elif os.path.isfile(tmp_filepath):
             os.remove(tmp_filepath)
-        time.sleep(0.1)
+        time.sleep(0.05)
         self.ensureDirExists(tmp_filepath)
-        time.sleep(0.1)
+        time.sleep(0.05)
         return tmp_filepath
