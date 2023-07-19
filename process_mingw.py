@@ -3,6 +3,7 @@ import re
 import sys
 import json
 import hashlib
+from copy import deepcopy
 
 from tqdm import tqdm
 from smda.common.SmdaReport import SmdaReport
@@ -10,6 +11,32 @@ from smda.common.SmdaReport import SmdaReport
 import config
 from lib2smda.Lib2SmdaConfig import Lib2SmdaConfig
 from lib2smda.Lib2SmdaConverter import Lib2SmdaConverter
+
+
+def merge_reports(smda_reports):
+    merged_report = None
+    if smda_reports:
+        merged_report = deepcopy(smda_reports[0])
+        linearized_functions = {}
+        for smda_function in merged_report.getFunctions():
+            linearized_functions[len(linearized_functions)] = smda_function
+        merged_report.xcfg = linearized_functions
+    if len(smda_reports) > 1:
+        print(f"merging {len(smda_reports)} reports...")
+        for smda_report in smda_reports[1:]:
+            # add statistics
+            merged_report.execution_time += smda_report.execution_time
+            merged_report.statistics += smda_report.statistics
+            merged_report.binary_size += smda_report.binary_size
+            merged_report.binweight += smda_report.binweight
+            # we should deduplicate here if we have an identical PIC hash and function_name, which happens for a bunch of MinGW
+            # TODO maybe make this an execution parameter
+            unique_functions = set()
+            for smda_function in smda_report.getFunctions():
+                if not (smda_function.pic_hash, smda_function.function_name) in unique_functions:
+                    merged_report.xcfg[len(merged_report.xcfg)] = smda_function
+                    unique_functions.add((smda_function.pic_hash, smda_function.function_name))
+    return merged_report
 
 
 def libfile2smda(converter, input_filepath, output_folder):
@@ -50,20 +77,60 @@ if __name__ == "__main__":
     # initialize converter
     converter = Lib2SmdaConverter(lib2smda_config)
     # run twice, once for each bitness
-    bitness_paths = ["/lib/", "/lib32/"]
-    for bitness_path in bitness_paths:
-        output_path = os.sep.join([this_path, "output" + "64" if bitness_path == "/lib/" else "32"])
-        converter.ensureDirExists(output_path)
-        sha256_by_libfile = {}
-        smda_files_by_dirname = {}
-        for root, dirs, files in sorted(os.walk(sys.argv[1], topdown=False)):
-            for filename in sorted(files):
-                filepath = os.path.abspath(root + os.sep + filename)
-                lib_dirname = os.path.dirname(filepath)
-                if (filepath.endswith(".o") or filepath.endswith(".a"))  and "x86_64" in filepath and bitness_path in filepath:
-                    file_sha256 = ""
-                    with open(filepath, "rb") as fin:
-                        sha256_by_libfile[filepath] = hashlib.sha256(fin.read()).hexdigest()
-        print(len(sha256_by_libfile))
-        for libfile, sha256 in sha256_by_libfile.items():
-            libfile2smda(converter, libfile, output_path)
+    input_abspath = os.path.abspath(sys.argv[1])
+    for release_dir in os.listdir(input_abspath):
+        if os.path.isdir(input_abspath + os.sep + release_dir):
+            release_hashes = {
+                "sha256": "",
+                "sha1": "",
+                "md5": ""
+            }
+            with open(input_abspath + os.sep + release_dir + ".7z", "rb") as fin:
+                file_content = fin.read()
+                release_hashes["sha256"] = hashlib.sha256(file_content).hexdigest()
+                release_hashes["sha1"] = hashlib.sha1(file_content).hexdigest()
+                release_hashes["md5"] = hashlib.md5(file_content).hexdigest()
+            bitness_paths = ["/lib/", "/lib32/"]
+            for bitness_path in bitness_paths:
+                output_path = this_path + os.sep + "output" + os.sep + release_dir + os.sep + ("x64" if bitness_path == "/lib/" else "x86")
+                converter.ensureDirExists(output_path)
+                sha256_by_libfile = {}
+                smda_files_by_dirname = {}
+                for root, dirs, files in sorted(os.walk(input_abspath + os.sep + release_dir, topdown=False)):
+                    for filename in sorted(files):
+                        filepath = os.path.abspath(root + os.sep + filename)
+                        lib_dirname = os.path.dirname(filepath)
+                        if (filepath.endswith(".o") or filepath.endswith(".a"))  and "x86_64" in filepath and bitness_path in filepath:
+                            file_sha256 = ""
+                            with open(filepath, "rb") as fin:
+                                sha256_by_libfile[filepath] = hashlib.sha256(fin.read()).hexdigest()
+                print(f"Processing {release_dir}, found {len(sha256_by_libfile)} library files.")
+                # for libfile, sha256 in sha256_by_libfile.items():
+                #     libfile2smda(converter, libfile, output_path)
+
+                # merge everything into one
+                print("merging SMDA reports...")
+                smda_reports = []
+                for filename in os.listdir(output_path):
+                    smda_report = SmdaReport.fromFile(output_path + os.sep + filename)
+                    print(smda_report)
+                    smda_reports.append(smda_report)
+                merged_report = merge_reports(smda_reports)
+                if merged_report:
+                    merged_report.filename = release_dir + ".7z"
+                    merged_report.sha256 = release_hashes["sha256"]
+                    merged_report.sha1 = release_hashes["sha1"]
+                    merged_report.md5 = release_hashes["md5"]
+                    merged_report.family = "MinGW"
+                    merged_report.version = release_dir
+                    merged_report.statistics.num_functions = merged_report.num_functions
+                    merged_report.statistics.num_basic_blocks = merged_report.num_instructions
+                    merged_report.statistics.num_instructions = merged_report.num_instructions
+                    merged_report.statistics.num_recursive_functions = 0
+                    merged_report.statistics.num_leaf_functions = 0
+                    merged_report.statistics.num_api_calls = 0
+                    merged_report.statistics.num_function_calls = 0
+                    merged_report.statistics.num_failed_functions = 0
+                    merged_report.statistics.num_failed_instructions = 0
+                with open(this_path + os.sep + "output" + os.sep + release_dir + "_" + ("x64" if bitness_path == "/lib/" else "x86") + ".smda", "w") as fout:
+                    json.dump(merged_report.toDict(), fout, indent=1, sort_keys=True)
