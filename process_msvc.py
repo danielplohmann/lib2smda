@@ -65,7 +65,7 @@ if __name__ == "__main__":
     print(f"Files found: {len(sha256_by_libfile)}")
     for libfile, sha256 in sha256_by_libfile.items():
         libfile2smda(converter, libfile, output_path)
-    input_foldername = sys.argv
+    input_foldername = sys.argv[1]
     if input_foldername.endswith(os.sep):
         input_foldername = input_foldername[:-1]
     input_foldername = input_foldername.split(os.sep)[-1]
